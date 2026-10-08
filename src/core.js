@@ -21,18 +21,20 @@ export const PRESETS = Object.freeze({
   },
   ukPhone: {
     label: "UK phone number",
-    // +44 / 0 prefix, then 9–10 digits with optional spaces, dashes or brackets.
-    source: String.raw`(?:\+44\s?\(?0?\)?\s?|\(?0)(?:\d\)?[\s-]?){9,10}\d?`,
+    // +44 / 0044 / 0 prefix, then 9–10 digits. Any run of separators is allowed
+    // between digits (including after the leading 0): PDFs from Word often have
+    // wide character spacing that text extraction turns into "0 7 9 5 0 …".
+    source: String.raw`(?:(?:\+|\b00)\s*44[\s.-]*(?:\(\s*0\s*\)[\s.-]*)?|\(?\b0[\s.)-]*)(?:\d[\s.)-]*){8,9}\d`,
   },
   niNumber: {
     label: "UK National Insurance number",
     // Deliberately looser than HMRC's issuing rules (which exclude prefixes such as
     // QQ, HMRC's own specimen): a missed match is worse than an extra one to review.
-    source: String.raw`\b[A-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b`,
+    source: String.raw`\b[A-Z]{2}\s*\d{2}\s*\d{2}\s*\d{2}\s*[A-D]\b`,
   },
   ukPostcode: {
     label: "UK postcode",
-    source: String.raw`\b(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[ABD-HJLNP-UW-Z]{2})\b`,
+    source: String.raw`\b(?:GIR\s*0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[ABD-HJLNP-UW-Z]{2})\b`,
   },
   date: {
     label: "Date (dd/mm/yyyy and similar)",
@@ -72,8 +74,12 @@ export function escapeRegExp(s) {
 
 /**
  * Turn user input into labelled global RegExps.
- * Literal terms tolerate any run of whitespace between words, so a name wrapped
- * across a line break ("John\nSmithers") is still matched.
+ * Between the words of a literal term, any run of whitespace, dots, underscores
+ * or hyphens is accepted — including none — so "John Smithers" also matches a
+ * name wrapped across lines, "johnsmithers.org", "john.smithers@" and
+ * "john_smithers". Names hide in URLs, emails and handles far more often than
+ * they appear with exactly one space.
+ * Within a word, a single space between letters is tolerated for letter-spaced text.
  * @throws {RedactionError} on an invalid user regex, naming which one.
  */
 export function compilePatterns({ terms = [], regexes = [], presets = [] } = {}, options = {}) {
@@ -82,7 +88,10 @@ export function compilePatterns({ terms = [], regexes = [], presets = [] } = {},
   for (const raw of terms) {
     const t = String(raw).trim();
     if (!t) continue;
-    const source = t.split(/\s+/).map(escapeRegExp).join(String.raw`\s+`);
+    // Within a word, allow one optional space between letters: letter-spaced text
+    // (Word's "expanded" spacing, Tc in the PDF) extracts as "J o h n".
+    const word = (w) => Array.from(w).map(escapeRegExp).join(String.raw`\s?`);
+    const source = t.split(/\s+/).map(word).join(String.raw`[\s._-]*`);
     out.push({ kind: "term", label: t, re: new RegExp(source, flags) });
   }
   for (const raw of regexes) {
@@ -228,7 +237,13 @@ export function findMatches(pdf, patterns, { maxMatches = 10000 } = {}) {
           re.lastIndex++; // guard against zero-length matches looping forever
           continue;
         }
-        const hit = quads.slice(m.index, m.index + m[0].length);
+        // Trim whitespace at the edges so boxes don't spill over neighbouring gaps.
+        let start = m.index;
+        let end = m.index + m[0].length;
+        while (start < end && /\s/.test(text[start])) start++;
+        while (end > start && /\s/.test(text[end - 1])) end--;
+        if (start === end) continue;
+        const hit = quads.slice(start, end);
         const merged = mergeQuads(hit);
         if (merged.length) {
           results.push({ page: p, label, text: m[0].replace(/\s+/g, " ").trim(), quads: merged });

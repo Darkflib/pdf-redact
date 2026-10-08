@@ -51,6 +51,13 @@
         <label class="check"><input type="checkbox" id="opt-case"> Match case</label>
         <button type="button" id="find" class="primary" disabled>Find matches</button>
         <div id="matches" class="matches"></div>
+        <details id="textview" class="textview">
+          <summary>Show the text search can see</summary>
+          <p class="hint">If something was missed, check how it appears here. Letter-spaced text shows up as "J o h n", and scanned pages show nothing.</p>
+          <label for="textpage">Page</label>
+          <select id="textpage"></select>
+          <pre id="textout" tabindex="0"></pre>
+        </details>
       </section>
 
       <section class="step" id="step-boxes">

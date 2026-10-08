@@ -83,6 +83,19 @@ describe("compilePatterns", () => {
     assert.ok(p.re.test("John   Smithers"));
   });
 
+  test("terms match with no separator, or dots/underscores/hyphens, between words", () => {
+    const [p] = core.compilePatterns({ terms: ["Mike Preston"] });
+    for (const sample of ["mikepreston.org", "mike.preston@example.com", "Mike_Preston", "mike-preston"]) {
+      p.re.lastIndex = 0;
+      assert.ok(p.re.test(sample), sample);
+    }
+  });
+
+  test("terms match letter-spaced text", () => {
+    const [p] = core.compilePatterns({ terms: ["Mobile"] });
+    assert.ok(p.re.test("M o b i l e"));
+  });
+
   test("caseSensitive option is honoured", () => {
     const [p] = core.compilePatterns({ terms: ["Smith"] }, { caseSensitive: true });
     assert.ok(!p.re.test("SMITH"));
@@ -104,7 +117,19 @@ describe("compilePatterns", () => {
 describe("presets", () => {
   const cases = {
     email: { yes: ["a.b+c@example.co.uk", "x@y.io"], no: ["not an email", "a@b"] },
-    ukPhone: { yes: ["07700 900123", "+44 7700 900123", "(01509) 123456", "0115 496 0000"], no: ["123", "2026"] },
+    ukPhone: {
+      yes: [
+        "07700 900123",
+        "+44 7700 900123",
+        "(01509) 123456",
+        "0115 496 0000",
+        "0 7 9 5 0 8 9 2 0 3 8", // letter-spaced extraction (Word "expanded" spacing)
+        "07950\n\n892038", // split across lines
+        "0044 7950 892038",
+        "+44 (0)7950 892038",
+      ],
+      no: ["123", "2026", "01/02/1970", "123 456"],
+    },
     niNumber: { yes: ["QQ123456C", "AB 12 34 56 D", "ab123456a"], no: ["AB123456E", "A1234567C"] },
     ukPostcode: { yes: ["DE74 2AB", "SW1A 1AA", "M1 1AE", "GIR 0AA"], no: ["12345", "DE74"] },
     date: { yes: ["01/02/1970", "1.2.70", "31-12-2026"], no: ["2026", "1/2"] },
@@ -370,6 +395,47 @@ describe("redact: awkward documents", () => {
     assert.equal(matches.length, 100);
     assert.equal(report.ok, true);
     assert.ok(performance.now() - t0 < 15000);
+  });
+});
+
+describe("redact: Word-style CV (names in URLs, letter-spaced phone)", () => {
+  let result;
+  let squashed;
+  before(async () => {
+    result = runRedaction(fx.wordStyle(), { terms: ["John Smithers"], presets: ["ukPhone"] });
+    // Remove whitespace so letter-spaced leftovers can't hide from the check.
+    squashed = (await pdfjsText(result.bytes)).toLowerCase().replace(/\s+/g, "");
+  });
+
+  test("finds the phone number and every form of the name", () => {
+    assert.deepEqual(
+      result.matches.map((m) => m.text).sort(),
+      ["0 7 9 5 0 8 9 2 0 3 8", "John_Smithers", "john-smithers", "johnsmithers"].sort(),
+    );
+  });
+
+  test("verification passes", () => {
+    assert.equal(result.report.ok, true, result.report.failures.join("; "));
+  });
+
+  test("pdf.js finds no phone digits or name forms", () => {
+    for (const s of ["07950892038", "johnsmithers", "john_smithers", "john-smithers"]) {
+      assert.ok(!squashed.includes(s), `"${s}" survived`);
+    }
+  });
+
+  test("surrounding text survives", () => {
+    assert.ok(squashed.includes("smithersj.com"), "a different token must not be touched");
+    assert.ok(squashed.includes("unrelated:smithandsonsltd"));
+    assert.ok(squashed.includes(".org"));
+  });
+
+  test("match edges are trimmed of whitespace", () => {
+    const [m] = core.findMatches(
+      core.openPrepared(mupdf, fx.kitchenSink()),
+      core.compilePatterns({ presets: ["ukPhone"] }),
+    );
+    assert.equal(m.text, "07700 900123");
   });
 });
 

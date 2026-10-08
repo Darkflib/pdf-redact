@@ -57,6 +57,12 @@ const handlers = {
     return { result: r, transfer: [r.png.buffer] };
   },
 
+  /** The exact text search runs against, for diagnosing misses. */
+  text({ index }) {
+    if (!state.source) throw new core.RedactionError("No file loaded", "NO_FILE");
+    return { text: core.pageText(state.source.loadPage(index)).text };
+  },
+
   find(payload) {
     if (!state.source) throw new core.RedactionError("No file loaded", "NO_FILE");
     return { matches: core.findMatches(state.source, compile(payload)) };

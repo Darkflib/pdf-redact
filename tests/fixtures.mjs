@@ -18,9 +18,9 @@ function pdfStr(s) {
  * Text line spec → content-stream fragment. `top` is the top-down y of the baseline
  * region (page space), converted here to PDF's bottom-up user space.
  */
-function textOp({ x, top, text, size = 12, mode = 0, rgb = [0, 0, 0] }) {
+function textOp({ x, top, text, size = 12, mode = 0, rgb = [0, 0, 0], charSpacing = 0 }) {
   const y = PAGE_H - top - size; // baseline roughly one em below the top
-  return `BT /F1 ${size} Tf ${mode} Tr ${rgb.join(" ")} rg ${x} ${y} Td ${pdfStr(text)} Tj ET\n`;
+  return `BT /F1 ${size} Tf ${mode} Tr ${charSpacing} Tc ${rgb.join(" ")} rg ${x} ${y} Td ${pdfStr(text)} Tj ET\n`;
 }
 
 /** Rect in page space (top-down) → PDF user-space "x y w h". */
@@ -176,5 +176,22 @@ export function manyPages(n = 50) {
   for (let i = 0; i < n; i++) {
     addPage(doc, res, textOp({ x: 72, top: 60, text: `Page ${i + 1} for John Smithers, ref ACME-${1000 + i}` }));
   }
+  return save(doc);
+}
+
+/**
+ * What Word-exported CVs look like: names inside URLs and emails, and a phone
+ * number set with wide character spacing (Tc), which text extraction can turn
+ * into "0 7 9 5 0 …".
+ */
+export function wordStyle() {
+  const { doc, font } = newDoc();
+  const res = doc.addObject({ Font: { F1: font } });
+  const content =
+    textOp({ x: 72, top: 60, text: "Mobile: 07950 892038 (inc signal)", charSpacing: 4 }) +
+    textOp({ x: 72, top: 80, text: "Web: johnsmithers.org / smithersj.com" }) +
+    textOp({ x: 72, top: 100, text: "Email: John_Smithers@example.com, handle john-smithers" }) +
+    textOp({ x: 72, top: 120, text: "Unrelated: Smith and Sons Ltd" });
+  addPage(doc, res, content);
   return save(doc);
 }

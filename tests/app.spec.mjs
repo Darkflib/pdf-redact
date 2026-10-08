@@ -200,6 +200,14 @@ test("changing a search invalidates a previous result", async ({ page }) => {
   await expect(page.locator("#tab-output")).toBeDisabled();
 });
 
+test("text view shows what search sees, per page", async ({ page }) => {
+  await openKitchenSink(page);
+  await page.locator("#textview summary").click();
+  await expect(page.locator("#textout")).toContainText("Patient: John Smithers");
+  await page.selectOption("#textpage", { label: "2" }); // labels are 1-based page numbers
+  await expect(page.locator("#textout")).toContainText("Page two mentions");
+});
+
 test("non-PDF file gives a clear error", async ({ page }) => {
   await page.goto("/");
   const p = join(tmp, "not.pdf");

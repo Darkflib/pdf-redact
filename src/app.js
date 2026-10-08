@@ -137,6 +137,7 @@ async function loadIntoEngine() {
     setStatus(status, `${state.fileName}.pdf — ${pages.length} page${pages.length === 1 ? "" : "s"}`, "ok");
     $("find").disabled = false;
     $("apply").disabled = false;
+    populateTextView();
     showView("source");
   } catch (e) {
     if (e.code === "NEEDS_PASSWORD" || e.code === "BAD_PASSWORD") {
@@ -483,6 +484,38 @@ function scrollToPage(i) {
   document.querySelector(`.page[data-index="${i}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// ---------------------------------------------------------------- text view
+
+function populateTextView() {
+  const sel = $("textpage");
+  sel.replaceChildren(
+    ...state.pages.map((_, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = String(i + 1);
+      return o;
+    }),
+  );
+  $("textout").textContent = "";
+  if ($("textview").open) showPageText();
+}
+
+async function showPageText() {
+  const out = $("textout");
+  if (!state.pages.length) {
+    out.textContent = "Open a PDF first.";
+    return;
+  }
+  const index = Number($("textpage").value || 0);
+  try {
+    const { text } = await engine.call("text", { index });
+    out.textContent = text.trim() ? text : "(No text on this page. It may be a scanned image, so use drawn boxes.)";
+  } catch (e) {
+    out.textContent = e.message;
+    log("text view failed", e);
+  }
+}
+
 // ---------------------------------------------------------------- redact
 
 function invalidateOutput() {
@@ -593,6 +626,8 @@ function init() {
   $("password").addEventListener("keydown", (e) => e.key === "Enter" && unlock());
 
   $("find").addEventListener("click", find);
+  $("textview").addEventListener("toggle", () => $("textview").open && showPageText());
+  $("textpage").addEventListener("change", showPageText);
   $("apply").addEventListener("click", apply);
   $("tab-source").addEventListener("click", () => showView("source"));
   $("tab-output").addEventListener("click", () => showView("output"));

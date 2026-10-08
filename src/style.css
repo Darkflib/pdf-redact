@@ -110,6 +110,13 @@ button.link { border: 0; background: none; padding: 0 0.2rem; color: var(--muted
 .boxes { padding: 0; }
 .boxes button { padding: 0.1rem 0.4rem; font-size: 0.8rem; }
 
+.textview summary { cursor: pointer; font-size: 0.9rem; color: var(--muted); margin-top: 0.4rem; }
+.textview[open] { display: flex; flex-direction: column; gap: 0.35rem; }
+.textview pre {
+  margin: 0; max-height: 18rem; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font: 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem;
+}
 .report ul { margin: 0.2rem 0; padding-left: 1.1rem; font-size: 0.85rem; }
 .report .failures { color: var(--err); }
 .report .warnings { color: var(--warn); }

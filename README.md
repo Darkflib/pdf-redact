@@ -6,7 +6,11 @@ Built on [MuPDF.js](https://github.com/ArtifexSoftware/mupdf.js) (MuPDF compiled
 
 ## What it does
 
-1. **Find**: literal phrases (any case, tolerant of line breaks), regular expressions, and presets (email, UK phone, NI number, postcode, date). Every match is listed and can be unticked.
+1. **Find**: literal phrases, regular expressions, and presets (email, UK phone, NI number, postcode, date). Every match is listed and can be unticked. Phrase search is forgiving:
+   - **Any case.**
+   - **Between words:** any run of spaces, line breaks, dots, underscores or hyphens, or none at all. "John Smithers" also finds `johnsmithers.org`, `john.smithers@…`, `john_smithers` and a name wrapped over two lines.
+   - **Within a word:** one optional space between letters, for letter-spaced text, which extracts as `J o h n`.
+   - **"Show the text search can see"** displays each page's extracted text, so you can see why something wasn't matched.
 2. **Draw boxes**: for signatures, photos, scanned text and anything else search can't see.
 3. **Redact**: MuPDF applies true redactions:
    - text whose glyphs fall in a box is deleted from the content stream
@@ -30,8 +34,8 @@ Built on [MuPDF.js](https://github.com/ArtifexSoftware/mupdf.js) (MuPDF compiled
 
 ```sh
 npm ci
-npm run test:unit   # node:test, 59 tests; outputs checked with pdf.js
-npm run test:e2e    # builds dist/, Playwright + Chromium, 10 tests
+npm run test:unit   # node:test, 66 tests; outputs checked with pdf.js
+npm run test:e2e    # builds dist/, Playwright + Chromium, 11 tests
 npm run serve       # http://127.0.0.1:8080
 ```
 
