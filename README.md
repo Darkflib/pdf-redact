@@ -31,7 +31,7 @@ Built on [MuPDF.js](https://github.com/ArtifexSoftware/mupdf.js) (MuPDF compiled
 ```sh
 npm ci
 npm run test:unit   # node:test, 59 tests; outputs checked with pdf.js
-npm run test:e2e    # builds dist/, Playwright + Chromium, 9 tests
+npm run test:e2e    # builds dist/, Playwright + Chromium, 10 tests
 npm run serve       # http://127.0.0.1:8080
 ```
 

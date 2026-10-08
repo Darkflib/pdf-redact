@@ -377,6 +377,8 @@ async function find() {
     return;
   }
   busy(btn, true, "Searching…");
+  // A result produced mid-search would be invalidated when the search lands.
+  $("apply").disabled = true;
   try {
     const { matches } = await engine.call("find", payload, { timeout: FIND_TIMEOUT_MS });
     state.matches = matches.map((m) => ({ ...m, id: nextId++, enabled: true }));
@@ -393,6 +395,7 @@ async function find() {
     log("find failed", e);
   } finally {
     busy(btn, false);
+    $("apply").disabled = !state.pages.length;
   }
 }
 
@@ -492,6 +495,7 @@ async function apply() {
   const boxes = state.boxes.map(({ page, rect }) => ({ page, rect }));
   const excluded = state.matches.filter((m) => !m.enabled).map(({ page, quads }) => ({ page, quads }));
   busy(btn, true, "Redacting…");
+  $("find").disabled = true;
   try {
     const { bytes, report, pages } = await engine.call("redact", { ...searchPayload(), matches, boxes, excluded });
     clearOutput();
@@ -511,6 +515,7 @@ async function apply() {
     log("redact failed", e);
   } finally {
     busy(btn, false);
+    $("find").disabled = !state.pages.length;
   }
 }
 

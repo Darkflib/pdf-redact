@@ -126,6 +126,7 @@ test("unticking a match keeps that text", async ({ page }) => {
   await openKitchenSink(page);
   await page.fill("#terms", "confidential");
   await page.click("#find");
+  await expect(page.locator(".matches details")).toHaveCount(1);
   await page.locator(".matches li input[type=checkbox]").first().uncheck();
   const bytes = await redactAndDownload(page);
   expect(await extractText(bytes)).toContain("confidential");
@@ -160,6 +161,7 @@ test("encrypted PDF: password prompt, wrong then right password", async ({ page 
 
   await page.fill("#terms", "Smithers");
   await page.click("#find");
+  await expect(page.locator(".matches details")).toHaveCount(1);
   const bytes = await redactAndDownload(page);
   expect(await extractText(bytes)).not.toContain("smithers"); // and it opened without a password
 });
@@ -173,10 +175,24 @@ test("invalid regex is reported, not thrown", async ({ page }) => {
   expect(seen.errors.filter((e) => !e.includes("[worker]"))).toEqual([]);
 });
 
+test("Redact is disabled while a search is running", async ({ page }) => {
+  await openKitchenSink(page);
+  await page.fill("#terms", "Smithers");
+  // Click and read the state in the same task, so a fast search can't finish first.
+  const disabledDuring = await page.evaluate(() => {
+    document.getElementById("find").click();
+    return document.getElementById("apply").disabled;
+  });
+  expect(disabledDuring).toBe(true);
+  await expect(page.locator(".matches details")).toHaveCount(1);
+  await expect(page.locator("#apply")).toBeEnabled();
+});
+
 test("changing a search invalidates a previous result", async ({ page }) => {
   await openKitchenSink(page);
   await page.fill("#terms", "Smithers");
   await page.click("#find");
+  await expect(page.locator(".matches details")).toHaveCount(1);
   await page.click("#apply");
   await expect(page.locator("#download")).toBeVisible();
   await page.click("#find");
