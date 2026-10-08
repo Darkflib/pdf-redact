@@ -1,0 +1,106 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- No network access beyond this origin: the app, the WASM, nothing else.
+       'wasm-unsafe-eval' is required to compile MuPDF's WebAssembly. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' blob:; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>PDF Redactor</title>
+  <meta name="description" content="Redact PDFs in your browser. Text, images and vector art under each box are removed, not covered. Files never leave your device.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1><span class="mark" aria-hidden="true"></span>PDF Redactor</h1>
+    <p class="tagline">Runs entirely in your browser. Your file is never uploaded.</p>
+    <a class="src" href="https://github.com/darkflib/pdf-redact">Source (AGPL-3.0)</a>
+  </header>
+
+  <main class="layout">
+    <aside class="panel" aria-label="Controls">
+      <section class="step" id="step-open">
+        <h2>1. Open</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="application/pdf,.pdf">
+          <span>Choose a PDF or drop it here</span>
+        </label>
+        <div id="pw-row" class="row" hidden>
+          <label for="password">Password</label>
+          <input type="password" id="password" autocomplete="off">
+          <button type="button" id="pw-go">Unlock</button>
+        </div>
+        <p id="file-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="step" id="step-find">
+        <h2>2. Find</h2>
+        <label for="terms">Words or phrases <small>(one per line)</small></label>
+        <textarea id="terms" rows="3" spellcheck="false" placeholder="John Smithers&#10;ACME Ltd"></textarea>
+        <label for="regexes">Regular expressions <small>(one per line)</small></label>
+        <textarea id="regexes" rows="2" spellcheck="false" placeholder="ACME-\d+"></textarea>
+        <fieldset class="presets">
+          <legend>Common patterns</legend>
+          <div id="presets"></div>
+        </fieldset>
+        <label class="check"><input type="checkbox" id="opt-case"> Match case</label>
+        <button type="button" id="find" class="primary" disabled>Find matches</button>
+        <div id="matches" class="matches"></div>
+      </section>
+
+      <section class="step" id="step-boxes">
+        <h2>3. Draw boxes</h2>
+        <p class="hint">Drag on a page to cover anything search can't find: signatures, photos, scanned text.</p>
+        <ul id="boxes" class="boxes"></ul>
+      </section>
+
+      <section class="step" id="step-opts">
+        <h2>4. Options</h2>
+        <label class="check"><input type="checkbox" id="opt-fillBlack" checked> Draw black boxes</label>
+        <label for="opt-imageMethod">Images under a box</label>
+        <select id="opt-imageMethod">
+          <option value="pixels" selected>Blank only the covered pixels</option>
+          <option value="remove">Remove the whole image</option>
+          <option value="none">Leave images (not recommended)</option>
+        </select>
+        <label for="opt-lineArtMethod">Vector graphics</label>
+        <select id="opt-lineArtMethod">
+          <option value="covered" selected>Remove if fully covered</option>
+          <option value="touched">Remove if touched</option>
+          <option value="none">Leave</option>
+        </select>
+        <label class="check"><input type="checkbox" id="opt-removeMetadata" checked> Remove metadata (title, author, XMP)</label>
+        <label class="check"><input type="checkbox" id="opt-removeAttachments" checked> Remove attachments</label>
+        <label class="check"><input type="checkbox" id="opt-removeOutlines" checked> Remove bookmarks</label>
+        <label class="check"><input type="checkbox" id="opt-removeAnnotations" checked> Remove comments, links and form fields</label>
+        <label class="check"><input type="checkbox" id="opt-removeStructure" checked> Remove accessibility tags (they can contain alt text)</label>
+        <label class="check"><input type="checkbox" id="opt-revealHiddenLayers" checked> Show hidden layers so they can be searched</label>
+      </section>
+
+      <section class="step" id="step-apply">
+        <h2>5. Redact</h2>
+        <button type="button" id="apply" class="primary danger" disabled>Redact and check</button>
+        <div id="report" class="report" role="status" aria-live="polite"></div>
+        <label class="check" id="override-row" hidden><input type="checkbox" id="override"> I've reviewed the problems above and accept them</label>
+        <a id="download" class="button primary" hidden>Download redacted PDF</a>
+        <p class="hint">The redacted file is a fresh copy with no password and no edit history. Your original isn't changed.</p>
+      </section>
+    </aside>
+
+    <section class="viewer" aria-label="Document">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-source" aria-selected="true">Marking up</button>
+        <button role="tab" id="tab-output" aria-selected="false" disabled>Redacted result</button>
+      </div>
+      <div id="pages" class="pages">
+        <p class="empty">Open a PDF to begin.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "pdf-redact",
+  "version": "0.1.0",
+  "description": "Client-side PDF redaction using MuPDF.js \u2014 files never leave the browser",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:e2e": "npm run build && playwright test",
+    "serve": "npm run build && node scripts/serve.mjs dist 8080"
+  },
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "mupdf": "^1.28.1",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "private": true,
+  "type": "module"
+}
