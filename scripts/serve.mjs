@@ -19,6 +19,7 @@ const TYPES = {
   ".json": "application/json",
   ".txt": "text/plain; charset=utf-8",
   ".pdf": "application/pdf",
+  ".gz": "application/gzip",
   ".png": "image/png",
   ".svg": "image/svg+xml",
 };

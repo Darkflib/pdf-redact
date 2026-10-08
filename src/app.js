@@ -3,6 +3,8 @@
 // app.js — UI. Owns no PDF logic; everything goes through the worker.
 
 import { PRESETS, DEFAULT_OPTIONS } from "./core.js";
+import { ocrPage } from "./ocr-engine.js";
+import { zipSync } from "./vendor/fflate/browser.js";
 
 const $ = (id) => document.getElementById(id);
 const log = (...a) => console.info("[redactor]", ...a);
@@ -71,6 +73,10 @@ const state = {
   boxes: [], // [{id, page, rect}]
   view: "source",
   downloadUrl: null,
+  files: [], // every PDF the user opened, for batch mode
+  current: -1, // index into files of the one being reviewed
+  ocr: {}, // page index → {text, quads, lowConfidence}, from Tesseract
+  batchUrls: [],
   renderCache: { source: new Map(), output: new Map() },
 };
 let nextId = 1;
@@ -110,8 +116,43 @@ function busy(btn, on, label) {
 
 // ---------------------------------------------------------------- open
 
-async function openFile(file) {
+/** Accept one or many files; review the first, keep the rest for batch mode. */
+async function openFiles(list) {
+  const pdfs = [...(list ?? [])].filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+  if (!pdfs.length) {
+    setStatus($("file-status"), "No PDF files in that selection.", "error");
+    return;
+  }
+  state.files = pdfs;
+  clearBatch();
+  renderFileList();
+  await openFile(0);
+}
+
+function renderFileList() {
+  const ul = $("files");
+  ul.hidden = state.files.length < 2;
+  $("batch").hidden = state.files.length < 2;
+  ul.replaceChildren(
+    ...state.files.map((f, i) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = f.name;
+      b.title = f.name;
+      b.setAttribute("aria-current", String(i === state.current));
+      b.addEventListener("click", () => i !== state.current && openFile(i));
+      li.append(b);
+      return li;
+    }),
+  );
+}
+
+async function openFile(index) {
+  const file = state.files[index];
   if (!file) return;
+  state.current = index;
+  renderFileList();
   if (file.size > 200 * 1024 * 1024) {
     setStatus($("file-status"), "That file is over 200 MB, which is too large to handle in the browser.", "error");
     return;
@@ -138,6 +179,7 @@ async function loadIntoEngine() {
     $("find").disabled = false;
     $("apply").disabled = false;
     populateTextView();
+    renderOcrInfo();
     showView("source");
   } catch (e) {
     if (e.code === "NEEDS_PASSWORD" || e.code === "BAD_PASSWORD") {
@@ -152,6 +194,8 @@ async function loadIntoEngine() {
 }
 
 function resetDocState() {
+  state.ocr = {};
+  setStatus($("ocr-status"), "");
   state.matches = [];
   state.boxes = [];
   state.pages = [];
@@ -381,7 +425,7 @@ async function find() {
   // A result produced mid-search would be invalidated when the search lands.
   $("apply").disabled = true;
   try {
-    const { matches } = await engine.call("find", payload, { timeout: FIND_TIMEOUT_MS });
+    const { matches } = await engine.call("find", { ...payload, extraText: state.ocr }, { timeout: FIND_TIMEOUT_MS });
     state.matches = matches.map((m) => ({ ...m, id: nextId++, enabled: true }));
     invalidateOutput();
     renderMatches();
@@ -415,7 +459,9 @@ function renderMatches(error) {
     if (state.pages.length && (lines("terms").length || lines("regexes").length || selectedPresets().length)) {
       const p = document.createElement("p");
       p.className = "status";
-      p.textContent = "No matches. Scanned pages have no text to search, so draw boxes over them instead.";
+      p.textContent = textlessPages().length
+        ? "No matches. Some pages have no text; run OCR below, or draw boxes over them."
+        : "No matches.";
       host.append(p);
     }
     return;
@@ -459,6 +505,10 @@ function renderMatches(error) {
       });
       const t = document.createElement("span");
       t.textContent = m.text;
+      if (m.source === "ocr") {
+        t.title = "Found by OCR";
+        t.dataset.ocr = "";
+      }
       const pg = document.createElement("button");
       pg.type = "button";
       pg.className = "link";
@@ -509,7 +559,10 @@ async function showPageText() {
   const index = Number($("textpage").value || 0);
   try {
     const { text } = await engine.call("text", { index });
-    out.textContent = text.trim() ? text : "(No text on this page. It may be a scanned image, so use drawn boxes.)";
+    const ocr = state.ocr[index]?.text;
+    let shown = text.trim() ? text : "(No text on this page. It may be a scanned image: run OCR, or draw boxes.)";
+    if (ocr) shown += `\n\n── OCR ──\n${ocr.trim() || "(OCR found no text)"}`;
+    out.textContent = shown;
   } catch (e) {
     out.textContent = e.message;
     log("text view failed", e);
@@ -524,7 +577,7 @@ function invalidateOutput() {
 
 async function apply() {
   const btn = $("apply");
-  const matches = state.matches.filter((m) => m.enabled).map(({ page, quads }) => ({ page, quads }));
+  const matches = state.matches.filter((m) => m.enabled).map(({ page, quads, source }) => ({ page, quads, source }));
   const boxes = state.boxes.map(({ page, rect }) => ({ page, rect }));
   const excluded = state.matches.filter((m) => !m.enabled).map(({ page, quads }) => ({ page, quads }));
   busy(btn, true, "Redacting…");
@@ -587,6 +640,186 @@ function renderReport(report) {
   }
 }
 
+// ---------------------------------------------------------------- OCR
+
+const textlessPages = () => state.pages.map((p, i) => (p.chars === 0 ? i : -1)).filter((i) => i >= 0);
+
+function renderOcrInfo() {
+  $("ocr-row").hidden = !state.pages.length;
+  const none = textlessPages().length;
+  $("ocr-info").textContent = none
+    ? `${none} of ${state.pages.length} page${state.pages.length === 1 ? " has" : "s have"} no text, which usually means a scan. OCR can read them so search works. It downloads about 7 MB the first time and takes a few seconds per page.`
+    : "Every page has text. OCR is only needed if text appears inside images, such as a pasted screenshot.";
+}
+
+async function runOcr() {
+  const btn = $("ocr-run");
+  const status = $("ocr-status");
+  const targets = $("ocr-all").checked ? state.pages.map((_, i) => i) : textlessPages();
+  if (!targets.length) {
+    setStatus(status, "No pages without text. Tick the box to OCR every page.");
+    return;
+  }
+  busy(btn, true, "Reading…");
+  $("find").disabled = true;
+  $("apply").disabled = true;
+  let low = 0;
+  try {
+    for (const [n, index] of targets.entries()) {
+      const onProgress = (m) => {
+        const pct = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
+        setStatus(status, `Page ${index + 1} (${n + 1} of ${targets.length}): ${m.status}${pct}`);
+      };
+      setStatus(status, `Page ${index + 1} (${n + 1} of ${targets.length})…`);
+      state.ocr[index] = await ocrPage(engine, index, { onProgress });
+      low += state.ocr[index].lowConfidence;
+    }
+    const found = targets.filter((i) => state.ocr[i].text.trim()).length;
+    setStatus(
+      status,
+      `OCR read ${found} of ${targets.length} page${targets.length === 1 ? "" : "s"}.` +
+        (low ? ` ${low} word${low === 1 ? " was" : "s were"} hard to read; check those pages by eye.` : "") +
+        " Now run Find matches.",
+      "ok",
+    );
+    invalidateOutput();
+    if ($("textview").open) showPageText();
+  } catch (e) {
+    setStatus(status, `OCR failed: ${e.message}`, "error");
+    log("ocr failed", e);
+  } finally {
+    busy(btn, false);
+    $("find").disabled = !state.pages.length;
+    $("apply").disabled = !state.pages.length;
+  }
+}
+
+// ---------------------------------------------------------------- batch
+
+let batchEngine = null;
+
+function clearBatch() {
+  for (const u of state.batchUrls) URL.revokeObjectURL(u);
+  state.batchUrls = [];
+  $("batch-report").replaceChildren();
+  $("batch-zip").hidden = true;
+}
+
+/** Make zip entry names unique and safe. */
+function uniqueName(name, used) {
+  const clean = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_");
+  let candidate = clean;
+  for (let n = 2; used.has(candidate); n++) candidate = clean.replace(/(\.pdf)?$/i, ` (${n})$1`);
+  used.add(candidate);
+  return candidate;
+}
+
+async function runBatch() {
+  const btn = $("batch-run");
+  const payload = searchPayload();
+  const report = $("batch-report");
+  if (!payload.terms.length && !payload.regexes.length && !payload.presets.length) {
+    report.textContent = "Enter something to search for first.";
+    return;
+  }
+  clearBatch();
+  busy(btn, true, "Working…");
+  batchEngine ??= new Engine();
+  const table = document.createElement("table");
+  table.innerHTML = "<thead><tr><th>File</th><th>Matches</th><th>Result</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  table.append(tbody);
+  report.replaceChildren(table);
+  const passing = [];
+  const used = new Set();
+
+  for (const [i, file] of state.files.entries()) {
+    const tr = document.createElement("tr");
+    const [tdName, tdCount, tdResult] = ["td", "td", "td"].map((t) => document.createElement(t));
+    tdName.className = "name";
+    tdName.textContent = file.name;
+    tdName.title = file.name;
+    tdResult.textContent = "Working…";
+    tr.append(tdName, tdCount, tdResult);
+    tbody.append(tr);
+    try {
+      const isCurrent = i === state.current;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { pages } = await batchEngine.call("open", {
+        bytes,
+        password: isCurrent ? state.password : "",
+        options: readOptions(),
+      });
+
+      // The file under review keeps its reviewed matches, boxes and OCR.
+      let extraText = isCurrent ? state.ocr : {};
+      if (!isCurrent && $("batch-ocr").checked) {
+        for (const [p, info] of pages.entries()) {
+          if (info.chars !== 0) continue;
+          tdResult.textContent = `OCR page ${p + 1}…`;
+          extraText[p] = await ocrPage(batchEngine, p);
+        }
+      }
+      let matches;
+      let excluded = [];
+      let boxes = [];
+      if (isCurrent && state.matches.length) {
+        matches = state.matches.filter((m) => m.enabled);
+        excluded = state.matches.filter((m) => !m.enabled).map(({ page, quads }) => ({ page, quads }));
+      } else {
+        ({ matches } = await batchEngine.call("find", { ...payload, extraText }, { timeout: FIND_TIMEOUT_MS }));
+      }
+      if (isCurrent) boxes = state.boxes.map(({ page, rect }) => ({ page, rect }));
+      const pick = ({ page, quads, source }) => ({ page, quads, source });
+      const res = await batchEngine.call("redact", { ...payload, matches: matches.map(pick), boxes, excluded });
+
+      tdCount.textContent = String(matches.length + boxes.length);
+      const outName = uniqueName(file.name.replace(/\.pdf$/i, "") + "-redacted.pdf", used);
+      const url = URL.createObjectURL(new Blob([res.bytes], { type: "application/pdf" }));
+      state.batchUrls.push(url);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = outName;
+      if (res.report.ok) {
+        passing.push([outName, res.bytes]);
+        a.textContent = "Passed · download";
+        tdResult.dataset.kind = matches.length || boxes.length ? "ok" : "warn";
+        if (!matches.length && !boxes.length) a.textContent = "No matches · download";
+      } else {
+        a.textContent = `${res.report.failures.length} problem${res.report.failures.length === 1 ? "" : "s"} · download anyway`;
+        tdResult.dataset.kind = "error";
+        tdResult.title = res.report.failures.join("\n");
+      }
+      tdResult.replaceChildren(a);
+    } catch (e) {
+      tdResult.dataset.kind = "error";
+      tdResult.textContent =
+        e.code === "NEEDS_PASSWORD" ? "Password protected: open it on its own to unlock it" : e.message;
+      log("batch file failed", file.name, e);
+    }
+  }
+
+  if (passing.length) {
+    // PDFs are already compressed; store rather than deflate again.
+    const zipped = zipSync(Object.fromEntries(passing.map(([n, b]) => [n, [b, { level: 0 }]])));
+    const url = URL.createObjectURL(new Blob([zipped], { type: "application/zip" }));
+    state.batchUrls.push(url);
+    const z = $("batch-zip");
+    z.href = url;
+    z.download = "redacted.zip";
+    z.textContent = `Download ${passing.length} passing file${passing.length === 1 ? "" : "s"} (.zip)`;
+    z.hidden = false;
+  }
+  busy(btn, false);
+}
+
+// ---------------------------------------------------------------- draw mode
+
+function setDrawing(on) {
+  $("pages").classList.toggle("drawing", on);
+  $("draw-toggle").setAttribute("aria-pressed", String(on));
+}
+
 // ---------------------------------------------------------------- wiring
 
 function init() {
@@ -601,7 +834,7 @@ function init() {
     presetsHost.append(lab);
   }
 
-  $("file").addEventListener("change", (e) => openFile(e.target.files[0]));
+  $("file").addEventListener("change", (e) => openFiles(e.target.files));
   const drop = $("drop");
   for (const ev of ["dragenter", "dragover"]) {
     drop.addEventListener(ev, (e) => {
@@ -612,7 +845,7 @@ function init() {
   for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
-    openFile(e.dataTransfer.files[0]);
+    openFiles(e.dataTransfer.files);
   });
   // Dropping a file anywhere else would navigate away and show it in the browser.
   window.addEventListener("dragover", (e) => e.preventDefault());
@@ -626,6 +859,11 @@ function init() {
   $("password").addEventListener("keydown", (e) => e.key === "Enter" && unlock());
 
   $("find").addEventListener("click", find);
+  $("ocr-run").addEventListener("click", runOcr);
+  $("batch-run").addEventListener("click", runBatch);
+  // Mouse users draw by default; on touch screens swiping should scroll until asked.
+  setDrawing(window.matchMedia?.("(pointer: fine)").matches ?? true);
+  $("draw-toggle").addEventListener("click", () => setDrawing(!$("pages").classList.contains("drawing")));
   $("textview").addEventListener("toggle", () => $("textview").open && showPageText());
   $("textpage").addEventListener("change", showPageText);
   $("apply").addEventListener("click", apply);
@@ -639,6 +877,8 @@ function init() {
       if (PREP_OPTIONS.has(k) && state.bytes) {
         // These change what is in the document being searched, so start again.
         state.matches = [];
+        state.ocr = {}; // the rendered page changes, so earlier OCR no longer applies
+        setStatus($("ocr-status"), "");
         for (const url of state.renderCache.source.values()) URL.revokeObjectURL(url);
         state.renderCache.source.clear();
         renderMatches();

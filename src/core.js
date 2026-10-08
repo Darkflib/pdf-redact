@@ -223,36 +223,36 @@ export function quadBBox(q) {
  * Find every pattern match in the document.
  * @returns {{page:number, label:string, text:string, quads:number[][]}[]}
  */
-export function findMatches(pdf, patterns, { maxMatches = 10000 } = {}) {
+export function findMatches(pdf, patterns, { maxMatches = 10000, extraText = {} } = {}) {
   const results = [];
   const n = pdf.countPages();
   for (let p = 0; p < n; p++) {
-    const page = pdf.loadPage(p);
-    const { text, quads } = pageText(page);
-    for (const { label, re } of patterns) {
-      re.lastIndex = 0;
-      let m;
-      while ((m = re.exec(text)) !== null) {
-        if (m[0].length === 0) {
-          re.lastIndex++; // guard against zero-length matches looping forever
-          continue;
-        }
-        // Trim whitespace at the edges so boxes don't spill over neighbouring gaps.
-        let start = m.index;
-        let end = m.index + m[0].length;
-        while (start < end && /\s/.test(text[start])) start++;
-        while (end > start && /\s/.test(text[end - 1])) end--;
-        if (start === end) continue;
-        const hit = quads.slice(start, end);
-        const merged = mergeQuads(hit);
-        if (merged.length) {
-          results.push({ page: p, label, text: m[0].replace(/\s+/g, " ").trim(), quads: merged });
-        }
-        if (results.length >= maxMatches) {
-          throw new RedactionError(
-            `More than ${maxMatches} matches — refine the pattern`,
-            "TOO_MANY_MATCHES",
-          );
+    // Real text first; OCR text (if supplied for this page) searched separately so
+    // a match never straddles the two.
+    const sources = [{ source: "text", ...pageText(pdf.loadPage(p)) }];
+    if (extraText[p]?.text) sources.push({ source: "ocr", text: extraText[p].text, quads: extraText[p].quads });
+    for (const { source, text, quads } of sources) {
+      for (const { label, re } of patterns) {
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          if (m[0].length === 0) {
+            re.lastIndex++; // guard against zero-length matches looping forever
+            continue;
+          }
+          // Trim whitespace at the edges so boxes don't spill over neighbouring gaps.
+          let start = m.index;
+          let end = m.index + m[0].length;
+          while (start < end && /\s/.test(text[start])) start++;
+          while (end > start && /\s/.test(text[end - 1])) end--;
+          if (start === end) continue;
+          const merged = mergeQuads(quads.slice(start, end));
+          if (merged.length) {
+            results.push({ page: p, label, source, text: m[0].replace(/\s+/g, " ").trim(), quads: merged });
+          }
+          if (results.length >= maxMatches) {
+            throw new RedactionError(`More than ${maxMatches} matches — refine the pattern`, "TOO_MANY_MATCHES");
+          }
         }
       }
     }
@@ -399,6 +399,42 @@ function normaliseRect(r) {
 
 // ---------------------------------------------------------------- verification
 
+/**
+ * Rects (page space) whose rendered pixels are not a flat fill.
+ * Rendered at 2x; each rect is inset by 1pt so anti-aliased edges don't count.
+ */
+export function nonUniformRegions(mupdf, pdf, pageIndex, rects, { tolerance = 48 } = {}) {
+  const zoom = 2;
+  const pix = pdf.loadPage(pageIndex).toPixmap(mupdf.Matrix.scale(zoom, zoom), mupdf.ColorSpace.DeviceRGB, false, true);
+  try {
+    const px = pix.getPixels();
+    const stride = pix.getStride();
+    const [ox, oy, w, h] = [pix.getX(), pix.getY(), pix.getWidth(), pix.getHeight()];
+    const bad = [];
+    for (const r of rects) {
+      const x0 = Math.max(0, Math.ceil((r[0] + 1) * zoom - ox));
+      const y0 = Math.max(0, Math.ceil((r[1] + 1) * zoom - oy));
+      const x1 = Math.min(w, Math.floor((r[2] - 1) * zoom - ox));
+      const y1 = Math.min(h, Math.floor((r[3] - 1) * zoom - oy));
+      if (x1 <= x0 || y1 <= y0) continue;
+      let lo = 255;
+      let hi = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = y * stride + x * 3;
+          const v = (px[i] + px[i + 1] + px[i + 2]) / 3;
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      }
+      if (hi - lo > tolerance) bad.push(r);
+    }
+    return bad;
+  } finally {
+    pix.destroy?.();
+  }
+}
+
 function intersects(a, b) {
   return a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 }
@@ -448,6 +484,28 @@ export function verify(
     else failures.push(`Page ${hit.page + 1}: "${hit.text}" still present (${hit.label})`);
   }
   if (keptCount) warnings.push(`${keptCount} match${keptCount === 1 ? "" : "es"} kept by choice (unticked)`);
+
+  // 2b. OCR matches have no text to re-search; check the pixels instead. Each
+  //     region must render as a flat fill (black box, or blank where content
+  //     was removed) — any remaining ink means the scan wasn't cleared.
+  const ocrByPage = new Map();
+  for (const m of matches) {
+    if (m.source !== "ocr") continue;
+    const list = ocrByPage.get(m.page) ?? [];
+    list.push(...m.quads.map(quadBBox));
+    ocrByPage.set(m.page, list);
+  }
+  let ocrChecked = 0;
+  for (const [p, rects] of ocrByPage) {
+    if (p >= pdf.countPages()) continue;
+    for (const bad of nonUniformRegions(mupdf, pdf, p, rects)) {
+      failures.push(`Page ${p + 1}: scanned content still visible in a redacted area at ${bad.map(Math.round).join(",")}`);
+    }
+    ocrChecked += rects.length;
+  }
+  if (ocrChecked) {
+    warnings.push(`${ocrChecked} OCR region${ocrChecked === 1 ? " was" : "s were"} checked by pixels, since scanned text can't be re-searched`);
+  }
 
   // 2. No extractable text inside any redacted region.
   const regions = new Map();
@@ -499,11 +557,9 @@ export function verify(
   const terms = patterns.filter((p) => p.kind === "term").map((p) => p.label.toLowerCase());
   if (terms.length) {
     const raw = pdf.saveToBuffer("decompress").asUint8Array();
-    let latin = "";
-    for (let i = 0; i < raw.length; i += 65536) {
-      latin += String.fromCharCode.apply(null, raw.subarray(i, i + 65536));
-    }
-    latin = latin.toLowerCase();
+    // TextDecoder, not String.fromCharCode.apply: spreading 64K arguments overflows
+    // the (smaller) stack of a browser worker on anything but tiny files.
+    const latin = new TextDecoder("latin1").decode(raw).toLowerCase();
     for (const t of terms) if (latin.includes(t)) warnings.push(`Raw bytes contain "${t}" — inspect manually`);
   }
 

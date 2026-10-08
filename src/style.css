@@ -117,6 +117,19 @@ button.link { border: 0; background: none; padding: 0 0.2rem; color: var(--muted
   font: 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem;
 }
+.files { list-style: none; margin: 0.2rem 0 0; padding: 0; max-height: 10rem; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
+.files li + li { border-top: 1px solid var(--line); }
+.files button { width: 100%; border: 0; border-radius: 0; background: none; text-align: left; font-size: 0.85rem; padding: 0.3rem 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files button[aria-current="true"] { font-weight: 600; background: var(--bg); }
+.ocr { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; padding-top: 0.5rem; border-top: 1px dashed var(--line); }
+.batch { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.batch h3 { margin: 0; font-size: 0.95rem; }
+.batch-report table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.batch-report th, .batch-report td { text-align: left; padding: 0.25rem 0.3rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.batch-report td.name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-report [data-kind="ok"] { color: var(--ok); }
+.batch-report [data-kind="error"] { color: var(--err); }
+.batch-report [data-kind="warn"] { color: var(--warn); }
 .report ul { margin: 0.2rem 0; padding-left: 1.1rem; font-size: 0.85rem; }
 .report .failures { color: var(--err); }
 .report .warnings { color: var(--warn); }
@@ -125,6 +138,9 @@ button.link { border: 0; background: none; padding: 0 0.2rem; color: var(--muted
 .tabs { display: flex; gap: 0.25rem; padding: 0.5rem 1rem 0; border-bottom: 1px solid var(--line); }
 .tabs button { border-radius: 6px 6px 0 0; border-bottom: 0; background: transparent; }
 .tabs button[aria-selected="true"] { background: var(--surface); font-weight: 600; }
+.tabs .toggle { margin-left: auto; margin-bottom: 0.35rem; border-radius: 6px; border: 1px solid var(--line); }
+.tabs .toggle::before { content: "✎ "; }
+.tabs .toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .pages { flex: 1; overflow-y: auto; padding: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: 1.2rem; }
 .empty { color: var(--muted); margin-top: 4rem; }
 
@@ -133,6 +149,9 @@ button.link { border: 0; background: none; padding: 0 0.2rem; color: var(--muted
 .page.failed::after { content: "Couldn't render this page"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--err); }
 .pageno { position: absolute; right: -2.2rem; top: 0; font-size: 0.75rem; color: var(--muted); }
 .overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+/* Draw mode off: let touches scroll and clicks pass through, but keep box delete buttons usable. */
+.pages:not(.drawing) .overlay { pointer-events: none; cursor: default; touch-action: auto; }
+.pages:not(.drawing) .overlay .remove { pointer-events: auto; }
 .mark-match { position: absolute; background: var(--mark); outline: 1px solid var(--mark-edge); pointer-events: none; }
 .mark-match.off { background: transparent; outline-style: dashed; opacity: 0.6; }
 .mark-box { position: absolute; background: var(--box); outline: 1px solid #000; }
@@ -147,4 +166,6 @@ button.link { border: 0; background: none; padding: 0 0.2rem; color: var(--muted
   .panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: 55vh; }
   .pages { padding: 1rem 16px; }
   .pageno { display: none; }
+  .tabs { padding: 0.4rem 16px 0; gap: 0.2rem; }
+  .tabs button { white-space: nowrap; padding: 0.4rem 0.55rem; font-size: 0.85rem; }
 }

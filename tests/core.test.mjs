@@ -495,6 +495,13 @@ describe("verify catches failures (testing the tester)", () => {
     assert.ok(r.warnings.some((w) => w.includes("smithers")));
   });
 
+  test("raw-byte scan copes with large files (regression: stack overflow in browser workers)", () => {
+    const big = fx.scanned(); // a full-page bitmap: hundreds of KB once decompressed
+    assert.ok(rawText(big).length > 200_000);
+    const r = core.verify(mupdf, big, { patterns: core.compilePatterns({ terms: ["anything"] }) });
+    assert.equal(typeof r.ok, "boolean");
+  });
+
   test("garbage output is reported, not thrown", () => {
     const r = core.verify(mupdf, new Uint8Array([1, 2, 3]), {});
     assert.equal(r.ok, false);

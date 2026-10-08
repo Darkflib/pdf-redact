@@ -10,6 +10,8 @@ import { join } from "node:path";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import * as mupdf from "mupdf";
 import * as fx from "./fixtures.mjs";
+import * as core from "../src/core.js";
+import { unzipSync } from "fflate";
 
 const tmp = mkdtempSync(join(tmpdir(), "redact-e2e-"));
 const fixture = (name, bytes) => {
@@ -19,6 +21,8 @@ const fixture = (name, bytes) => {
 };
 const KITCHEN = fixture("kitchen-sink", fx.kitchenSink());
 const ENCRYPTED = fixture("encrypted", fx.encrypted());
+const WORDSTYLE = fixture("word-style", fx.wordStyle());
+const SCANNED = fixture("scanned", fx.scanned());
 
 async function extractText(bytes) {
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0, isEvalSupported: false }).promise;
@@ -214,4 +218,124 @@ test("non-PDF file gives a clear error", async ({ page }) => {
   writeFileSync(p, "hello, I am not a PDF");
   await page.setInputFiles("#file", p);
   await expect(page.locator("#file-status")).toHaveAttribute("data-kind", "error");
+});
+
+// ---------------------------------------------------------------- draw mode
+
+test("draw mode: on by default with a mouse; off lets drags through", async ({ page }) => {
+  await openKitchenSink(page);
+  await expect(page.locator("#draw-toggle")).toHaveAttribute("aria-pressed", "true");
+  await page.click("#draw-toggle");
+  await expect(page.locator("#draw-toggle")).toHaveAttribute("aria-pressed", "false");
+  await drawBox(page, [100, 500, 200, 550]);
+  await expect(page.locator("#boxes li")).toHaveCount(0);
+  await page.click("#draw-toggle");
+  await drawBox(page, [100, 500, 200, 550]);
+  await expect(page.locator("#boxes li")).toHaveCount(1);
+});
+
+test.describe("on a touch screen", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("draw mode starts off so swiping scrolls", async ({ page }) => {
+    await openKitchenSink(page);
+    await expect(page.locator("#draw-toggle")).toHaveAttribute("aria-pressed", "false");
+    // With drawing off the overlay must not capture touches.
+    const pe = await page.locator(".page .overlay").first().evaluate((el) => getComputedStyle(el).pointerEvents);
+    expect(pe).toBe("none");
+  });
+});
+
+// ---------------------------------------------------------------- OCR
+
+test("OCR: scanned page becomes searchable, redaction clears the pixels, nothing leaves the origin", async ({ page, baseURL }) => {
+  const seen = await instrument(page);
+  await page.goto("/");
+  await page.setInputFiles("#file", SCANNED);
+  await expect(page.locator("#ocr-info")).toContainText("1 of 1 page has no text");
+
+  // Before OCR, search finds nothing.
+  await page.fill("#terms", "John Smithers");
+  await page.click("#find");
+  await expect(page.locator("#matches .status")).toContainText("run OCR");
+
+  await page.click("#ocr-run");
+  await expect(page.locator("#ocr-status")).toContainText("OCR read 1 of 1 page", { timeout: 60_000 });
+  await page.getByLabel("UK phone number").check();
+  await page.click("#find");
+  await expect(page.locator(".matches li span[data-ocr]")).toHaveCount(2);
+
+  const bytes = await redactAndDownload(page);
+  await expect(page.locator("#report .warnings")).toContainText("checked by pixels");
+
+  // Independent of the app's own check: where the name was (x≈203–304, y≈84–96
+  // on the page) is now solid black, and the line we kept still has ink.
+  expect(Math.max(...pixelAt(bytes, [220, 90]))).toBeLessThan(40);
+  expect(Math.max(...pixelAt(bytes, [280, 90]))).toBeLessThan(40);
+  const pdf = mupdf.Document.openDocument(new Uint8Array(bytes), "application/pdf").asPDF();
+  expect(core.nonUniformRegions(mupdf, pdf, 0, [[72, 158, 260, 178]])).toHaveLength(1);
+
+  const origin = new URL(baseURL).origin;
+  expect(seen.requests.filter((u) => !u.startsWith(origin) && !/^(blob|data):/.test(u))).toEqual([]);
+  expect(await page.evaluate(() => window.__csp)).toEqual([]);
+  expect(seen.errors).toEqual([]);
+});
+
+// ---------------------------------------------------------------- batch
+
+test("batch: same search over several files, per-file results, zip of passing files", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await page.setInputFiles("#file", [KITCHEN, WORDSTYLE, ENCRYPTED, SCANNED]);
+  await expect(page.locator("#files li")).toHaveCount(4);
+  await expect(page.locator("#batch")).toBeVisible();
+  await expect(page.locator("#file-status")).toContainText("kitchen-sink.pdf");
+
+  await page.fill("#terms", "Smithers");
+  await page.getByLabel("UK phone number").check();
+  await page.getByLabel("Also OCR pages without text").check();
+  await page.click("#batch-run");
+
+  const rows = page.locator(".batch-report tbody tr");
+  await expect(rows).toHaveCount(4);
+  await expect(page.locator("#batch-zip")).toBeVisible({ timeout: 90_000 });
+  await expect(rows.nth(0).locator("td").nth(2)).toHaveAttribute("data-kind", "ok");
+  await expect(rows.nth(1).locator("td").nth(2)).toHaveAttribute("data-kind", "ok");
+  await expect(rows.nth(2).locator("td").nth(2)).toContainText("Password protected");
+  await expect(rows.nth(3).locator("td").nth(2)).toHaveAttribute("data-kind", "ok");
+  await expect(page.locator("#batch-zip")).toContainText("Download 3 passing files");
+
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#batch-zip")]);
+  const files = unzipSync(new Uint8Array(readFileSync(await download.path())));
+  expect(Object.keys(files).sort()).toEqual([
+    "kitchen-sink-redacted.pdf",
+    "scanned-redacted.pdf",
+    "word-style-redacted.pdf",
+  ]);
+  for (const name of ["kitchen-sink-redacted.pdf", "word-style-redacted.pdf"]) {
+    const text = (await extractText(files[name])).replace(/\s+/g, "");
+    expect(text, name).not.toContain("smithers");
+  }
+  expect((await extractText(files["word-style-redacted.pdf"])).replace(/\s+/g, "")).not.toContain("07950892038");
+  // Scanned file: the name sits around x≈200–300, y≈84–96 on the page; it must now be solid.
+  expect(Math.max(...pixelAt(files["scanned-redacted.pdf"], [270, 90]))).toBeLessThan(40);
+});
+
+test("batch: switching files keeps the list, and the reviewed file keeps its unticked matches", async ({ page }) => {
+  await page.goto("/");
+  await page.setInputFiles("#file", [KITCHEN, WORDSTYLE]);
+  await page.fill("#terms", "confidential");
+  await page.click("#find");
+  await expect(page.locator(".matches details")).toHaveCount(1);
+  await page.locator(".matches li input[type=checkbox]").first().uncheck();
+  await page.click("#batch-run");
+  await expect(page.locator(".batch-report tbody tr")).toHaveCount(2);
+  const link = page.locator(".batch-report tbody tr").nth(0).locator("a");
+  await expect(link).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+  expect(await extractText(readFileSync(await download.path()))).toContain("confidential");
+
+  await page.locator("#files button", { hasText: "word-style.pdf" }).click();
+  await expect(page.locator("#file-status")).toContainText("word-style.pdf");
+  await expect(page.locator("#files li")).toHaveCount(2);
 });

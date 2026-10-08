@@ -195,3 +195,28 @@ export function wordStyle() {
   addPage(doc, res, content);
   return save(doc);
 }
+
+/**
+ * A "scanned" page: real text rendered to a bitmap at ~216 dpi, then placed as
+ * the only content of a new page. There is no text layer, so only OCR or a
+ * drawn box can find anything.
+ */
+export const SCAN_ZOOM = 3;
+export function scanned() {
+  const { doc: src, font } = newDoc();
+  const res = src.addObject({ Font: { F1: font } });
+  addPage(
+    src,
+    res,
+    textOp({ x: 72, top: 80, text: "Scanned letter for John Smithers", size: 16 }) +
+      textOp({ x: 72, top: 120, text: "Telephone 07700 900123", size: 16 }) +
+      textOp({ x: 72, top: 160, text: "Keep this line intact", size: 16 }),
+  );
+  const pix = src.loadPage(0).toPixmap(mupdf.Matrix.scale(SCAN_ZOOM, SCAN_ZOOM), mupdf.ColorSpace.DeviceGray, false, true);
+
+  const { doc } = newDoc();
+  const img = doc.addImage(new mupdf.Image(pix));
+  const pres = doc.addObject({ XObject: { Scan: img } });
+  addPage(doc, pres, `q ${PAGE_W} 0 0 ${PAGE_H} 0 0 cm /Scan Do Q\n`);
+  return save(doc);
+}

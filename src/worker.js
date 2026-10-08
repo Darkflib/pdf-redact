@@ -26,7 +26,11 @@ function dropDoc(key) {
 
 function pageInfo(pdf) {
   const pages = [];
-  for (let i = 0; i < pdf.countPages(); i++) pages.push({ bounds: pdf.loadPage(i).getBounds() });
+  for (let i = 0; i < pdf.countPages(); i++) {
+    const page = pdf.loadPage(i);
+    // chars: how much real text the page has; 0 usually means a scanned image.
+    pages.push({ bounds: page.getBounds(), chars: core.pageText(page).text.replace(/\s/g, "").length });
+  }
   return pages;
 }
 
@@ -65,7 +69,7 @@ const handlers = {
 
   find(payload) {
     if (!state.source) throw new core.RedactionError("No file loaded", "NO_FILE");
-    return { matches: core.findMatches(state.source, compile(payload)) };
+    return { matches: core.findMatches(state.source, compile(payload), { extraText: payload.extraText ?? {} }) };
   },
 
   redact(payload) {

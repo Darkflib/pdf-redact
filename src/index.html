@@ -27,8 +27,8 @@
       <section class="step" id="step-open">
         <h2>1. Open</h2>
         <label class="drop" id="drop">
-          <input type="file" id="file" accept="application/pdf,.pdf">
-          <span>Choose a PDF or drop it here</span>
+          <input type="file" id="file" accept="application/pdf,.pdf" multiple>
+          <span>Choose PDFs or drop them here</span>
         </label>
         <div id="pw-row" class="row" hidden>
           <label for="password">Password</label>
@@ -36,6 +36,7 @@
           <button type="button" id="pw-go">Unlock</button>
         </div>
         <p id="file-status" class="status" role="status" aria-live="polite"></p>
+        <ul id="files" class="files" aria-label="Open files" hidden></ul>
       </section>
 
       <section class="step" id="step-find">
@@ -58,11 +59,17 @@
           <select id="textpage"></select>
           <pre id="textout" tabindex="0"></pre>
         </details>
+        <div id="ocr-row" class="ocr" hidden>
+          <p id="ocr-info" class="hint"></p>
+          <button type="button" id="ocr-run">Read scanned pages (OCR)</button>
+          <label class="check"><input type="checkbox" id="ocr-all"> OCR every page, not only pages without text</label>
+          <p id="ocr-status" class="status" role="status" aria-live="polite"></p>
+        </div>
       </section>
 
       <section class="step" id="step-boxes">
         <h2>3. Draw boxes</h2>
-        <p class="hint">Drag on a page to cover anything search can't find: signatures, photos, scanned text.</p>
+        <p class="hint">Turn on <strong>Draw boxes</strong> above the pages, then drag over anything search can't find: signatures, photos, scanned text.</p>
         <ul id="boxes" class="boxes"></ul>
       </section>
 
@@ -96,6 +103,14 @@
         <label class="check" id="override-row" hidden><input type="checkbox" id="override"> I've reviewed the problems above and accept them</label>
         <a id="download" class="button primary" hidden>Download redacted PDF</a>
         <p class="hint">The redacted file is a fresh copy with no password and no edit history. Your original isn't changed.</p>
+        <div id="batch" class="batch" hidden>
+          <h3>All open files</h3>
+          <p class="hint">Runs the same search on every file and redacts <strong>every match without review</strong>. Boxes and unticked matches only apply to the file you're viewing. Check the results before sharing.</p>
+          <label class="check"><input type="checkbox" id="batch-ocr"> Also OCR pages without text (slow)</label>
+          <button type="button" id="batch-run" class="primary">Redact all files</button>
+          <div id="batch-report" class="batch-report" role="status" aria-live="polite"></div>
+          <a id="batch-zip" class="button primary" hidden>Download passing files (.zip)</a>
+        </div>
       </section>
     </aside>
 
@@ -103,6 +118,7 @@
       <div class="tabs" role="tablist">
         <button role="tab" id="tab-source" aria-selected="true">Marking up</button>
         <button role="tab" id="tab-output" aria-selected="false" disabled>Redacted result</button>
+        <button type="button" id="draw-toggle" class="toggle" aria-pressed="false" title="When off, swiping scrolls the pages">Draw boxes</button>
       </div>
       <div id="pages" class="pages">
         <p class="empty">Open a PDF to begin.</p>

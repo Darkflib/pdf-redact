@@ -21,6 +21,26 @@ try {
   for (const f of ["mupdf.js", "mupdf-wasm.js", "mupdf-wasm.wasm"]) {
     cpSync(join(mupdfDist, f), join(dist, "vendor", "mupdf", f));
   }
+  // OCR (loaded only on demand): tesseract.js, the LSTM-only WASM cores (the
+  // loader picks one by CPU feature), and the compact English model.
+  const nm = (...p) => join(root, "node_modules", ...p);
+  const vend = (...p) => join(dist, "vendor", ...p);
+  mkdirSync(vend("tesseract"), { recursive: true });
+  mkdirSync(vend("tesseract-core"), { recursive: true });
+  mkdirSync(vend("tessdata"), { recursive: true });
+  mkdirSync(vend("fflate"), { recursive: true });
+  for (const f of ["tesseract.esm.min.js", "worker.min.js"]) cpSync(nm("tesseract.js", "dist", f), vend("tesseract", f));
+  cpSync(nm("tesseract.js", "LICENSE.md"), vend("tesseract", "LICENSE.txt"));
+  for (const f of ["tesseract-core-relaxedsimd-lstm.wasm.js", "tesseract-core-simd-lstm.wasm.js", "tesseract-core-lstm.wasm.js"]) {
+    cpSync(nm("tesseract.js-core", f), vend("tesseract-core", f));
+  }
+  cpSync(nm("tesseract.js-core", "LICENSE"), vend("tesseract-core", "LICENSE.txt"));
+  cpSync(nm("@tesseract.js-data", "eng", "4.0.0_best_int", "eng.traineddata.gz"), vend("tessdata", "eng.traineddata.gz"));
+  writeFileSync(vend("tessdata", "README.txt"), "eng.traineddata from tesseract-ocr/tessdata_best (int), Apache-2.0, via @tesseract.js-data/eng\n");
+  // Zip writer for batch downloads.
+  cpSync(nm("fflate", "esm", "browser.js"), vend("fflate", "browser.js"));
+  cpSync(nm("fflate", "LICENSE"), vend("fflate", "LICENSE.txt"));
+
   // AGPL: ship the licence and point at the corresponding source.
   cpSync(join(root, "LICENSE"), join(dist, "LICENSE.txt"));
   cpSync(join(root, "node_modules", "mupdf", "LICENSE"), join(dist, "vendor", "mupdf", "LICENSE.txt"));
