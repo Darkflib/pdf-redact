@@ -7,11 +7,36 @@
   <!-- No network access beyond this origin: the app, the WASM, nothing else.
        'wasm-unsafe-eval' is required to compile MuPDF's WebAssembly. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' blob:; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+        content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' blob:; style-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>PDF Redactor</title>
   <meta name="description" content="Redact PDFs in your browser. Text, images and vector art under each box are removed, not covered. Files never leave your device.">
+  <link rel="canonical" href="https://darkflib.github.io/pdf-redact/">
+
+  <!-- Icons: SVG for modern browsers, PNG fallbacks for everything else. -->
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#161615">
+
+  <!-- Link previews (Slack, Teams, LinkedIn, Mastodon, X…). Crawlers need absolute URLs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PDF Redactor">
+  <meta property="og:title" content="PDF Redactor: redact PDFs in your browser">
+  <meta property="og:description" content="Text, images and graphics are removed from the file, not just covered, and every result is checked. Your file is never uploaded.">
+  <meta property="og:url" content="https://darkflib.github.io/pdf-redact/">
+  <meta property="og:image" content="https://darkflib.github.io/pdf-redact/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PDF Redactor: a document page with black redaction bars and the text 'Redact PDFs in your browser'.">
+  <meta property="og:locale" content="en_GB">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PDF Redactor: redact PDFs in your browser">
+  <meta name="twitter:description" content="Text, images and graphics are removed from the file, not just covered. Your file is never uploaded.">
+  <meta name="twitter:image" content="https://darkflib.github.io/pdf-redact/og-image.png">
+  <meta name="twitter:image:alt" content="PDF Redactor: a document page with black redaction bars.">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>

@@ -39,12 +39,14 @@ Choose or drop several PDFs. The first opens for review, and the list lets you s
 
 ```sh
 npm ci
-npm run test:unit   # node:test, 80 tests (incl. OCR); outputs checked with pdf.js
+npm run test:unit   # node:test, 85 tests (incl. OCR); outputs checked with pdf.js
 npm run test:e2e    # builds dist/, Playwright + Chromium, 16 tests
 npm run serve       # http://127.0.0.1:8080
 ```
 
 If you already have a Chromium, set `CHROMIUM_PATH` instead of running `playwright install`.
+
+The icons and link-preview card are drawn from `assets/icon.svg` and `assets/og.html`. After changing either, run `node scripts/make-assets.mjs` to regenerate the PNGs in `src/`. `tests/meta.test.mjs` checks that the tags, absolute URLs and image sizes all match.
 
 Layout:
 

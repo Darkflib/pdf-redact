@@ -22,6 +22,7 @@ const TYPES = {
   ".gz": "application/gzip",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".webmanifest": "application/manifest+json",
 };
 
 createServer(async (req, res) => {
