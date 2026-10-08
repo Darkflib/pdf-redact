@@ -220,3 +220,19 @@ export function scanned() {
   addPage(doc, pres, `q ${PAGE_W} 0 0 ${PAGE_H} 0 0 cm /Scan Do Q\n`);
   return save(doc);
 }
+
+/** US identifiers, plus decoys that look numeric but must NOT be redacted. */
+export function usStyle() {
+  const { doc, font } = newDoc();
+  const res = doc.addObject({ Font: { F1: font } });
+  const content =
+    textOp({ x: 72, top: 60, text: "Employee: Jane Q. Public" }) +
+    textOp({ x: 72, top: 80, text: "SSN: 123-45-6789   ITIN: 912-70-1234" }) +
+    textOp({ x: 72, top: 100, text: "Phone: (415) 555-2671   EIN: 12-3456789" }) +
+    textOp({ x: 72, top: 120, text: "Address: 1 Market St, San Francisco, CA 94105" }) +
+    textOp({ x: 72, top: 140, text: "Card: 4111 1111 1111 1111   Routing: 021000021" }) +
+    textOp({ x: 72, top: 160, text: "Medicare: 1EG4-TE5-MK73   DOB: March 3, 1980" }) +
+    textOp({ x: 72, top: 180, text: "Invoice 000123456, order total 99999, keep this sentence intact." });
+  addPage(doc, res, content);
+  return save(doc);
+}

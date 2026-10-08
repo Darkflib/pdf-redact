@@ -12,14 +12,109 @@
 //
 // Quad layout (MuPDF): [ulx, uly, urx, ury, llx, lly, lrx, lry].
 
-/** Built-in patterns. Deliberately conservative: false negatives are the dangerous
- *  failure for a redaction tool, but wildly greedy patterns make review useless. */
+// ---------------------------------------------------------------- preset helpers
+
+/** n digits, tolerating one space between digits (letter-spaced extraction: "1 2 3"). */
+const digits = (n) => String.raw`\d(?:\s?\d){${n - 1}}`;
+/** Separator between digit groups: dashes, dots or spaces, in any run. */
+const SEP = String.raw`[\s.-]*`;
+/** Not glued to more digits on either side (so we don't match inside a longer number). */
+const NO_DIGIT_BEFORE = String.raw`(?<![\d-])`;
+const NO_DIGIT_AFTER = String.raw`(?!\d)`;
+const onlyDigits = (s) => s.replace(/\D/g, "");
+
+/** Luhn checksum, used by every major payment card scheme. */
+export function luhnValid(number) {
+  const d = onlyDigits(number);
+  if (d.length < 13 || d.length > 19) return false;
+  let sum = 0;
+  for (let i = 0; i < d.length; i++) {
+    let v = d.charCodeAt(d.length - 1 - i) - 48;
+    if (i % 2 === 1) {
+      v *= 2;
+      if (v > 9) v -= 9;
+    }
+    sum += v;
+  }
+  return sum % 10 === 0;
+}
+
+/** ABA routing number: valid Federal Reserve prefix and the 3-7-1 weighted checksum. */
+export function abaValid(number) {
+  const d = onlyDigits(number);
+  if (d.length !== 9) return false;
+  const prefix = Number(d.slice(0, 2));
+  const okPrefix = prefix <= 12 || (prefix >= 21 && prefix <= 32) || (prefix >= 61 && prefix <= 72) || prefix === 80;
+  if (!okPrefix) return false;
+  const w = [3, 7, 1, 3, 7, 1, 3, 7, 1];
+  return [...d].reduce((acc, c, i) => acc + (c.charCodeAt(0) - 48) * w[i], 0) % 10 === 0;
+}
+
+/** SSN issuing rules: area not 000, 666 or 9xx; group not 00; serial not 0000. */
+export function ssnValid(text) {
+  const d = onlyDigits(text);
+  if (d.length !== 9) return false;
+  const [area, group, serial] = [d.slice(0, 3), d.slice(3, 5), d.slice(5)];
+  return area !== "000" && area !== "666" && area[0] !== "9" && group !== "00" && serial !== "0000";
+}
+
+/** ITIN: 9xx area and a group in the ranges the IRS issues. */
+export function itinValid(text) {
+  const d = onlyDigits(text);
+  if (d.length !== 9 || d[0] !== "9") return false;
+  const g = Number(d.slice(3, 5));
+  return (g >= 50 && g <= 65) || (g >= 70 && g <= 88) || (g >= 90 && g <= 92) || (g >= 94 && g <= 99);
+}
+
+const US_STATES =
+  "AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AS|MP";
+const MONTH =
+  String.raw`(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?`;
+const ORD = String.raw`(?:st|nd|rd|th)?`;
+// Medicare Beneficiary Identifier alphabet: letters except S, L, O, I, B, Z.
+const MBI_A = "[AC-HJKMNP-RT-Y]";
+const MBI_AN = "[AC-HJKMNP-RT-Y0-9]";
+
+/**
+ * Built-in patterns. Deliberately conservative: false negatives are the dangerous
+ * failure for a redaction tool, but wildly greedy patterns make review useless.
+ *
+ *   region      groups the UI: "UK", "US" or "General"
+ *   source      the regex
+ *   flags       default "gui"; case-sensitive where case carries meaning
+ *   validate    optional check on the matched text, for rules a regex can't
+ *               express (checksums). A failed check means "not this kind of
+ *               number", so the match is dropped.
+ */
 export const PRESETS = Object.freeze({
+  // ---- General
   email: {
+    region: "General",
     label: "Email address",
     source: String.raw`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`,
   },
+  date: {
+    region: "General",
+    label: "Date in numbers (01/02/1970, 1-2-70)",
+    // Order-agnostic, so it covers dd/mm (UK) and mm/dd (US) alike.
+    source: String.raw`\b\d{1,2}[/.-]\d{1,2}[/.-](?:\d{4}|\d{2})\b`,
+  },
+  dateWords: {
+    region: "General",
+    label: "Date in words (5 January 2026, Jan. 5th, 2026)",
+    source: String.raw`\b\d{1,2}${ORD}\s+(?:of\s+)?${MONTH},?\s+\d{4}\b|\b${MONTH}\s+\d{1,2}${ORD},?\s+\d{4}\b`,
+  },
+  paymentCard: {
+    region: "General",
+    label: "Payment card number (Luhn-checked)",
+    // 13–19 digits in any grouping; the checksum weeds out ordinary long numbers.
+    source: String.raw`${NO_DIGIT_BEFORE}\d(?:[\s-]?\d){12,18}${NO_DIGIT_AFTER}`,
+    validate: luhnValid,
+  },
+
+  // ---- UK
   ukPhone: {
+    region: "UK",
     label: "UK phone number",
     // +44 / 0044 / 0 prefix, then 9–10 digits. Any run of separators is allowed
     // between digits (including after the leading 0): PDFs from Word often have
@@ -27,18 +122,64 @@ export const PRESETS = Object.freeze({
     source: String.raw`(?:(?:\+|\b00)\s*44[\s.-]*(?:\(\s*0\s*\)[\s.-]*)?|\(?\b0[\s.)-]*)(?:\d[\s.)-]*){8,9}\d`,
   },
   niNumber: {
+    region: "UK",
     label: "UK National Insurance number",
     // Deliberately looser than HMRC's issuing rules (which exclude prefixes such as
     // QQ, HMRC's own specimen): a missed match is worse than an extra one to review.
     source: String.raw`\b[A-Z]{2}\s*\d{2}\s*\d{2}\s*\d{2}\s*[A-D]\b`,
   },
   ukPostcode: {
+    region: "UK",
     label: "UK postcode",
     source: String.raw`\b(?:GIR\s*0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[ABD-HJLNP-UW-Z]{2})\b`,
   },
-  date: {
-    label: "Date (dd/mm/yyyy and similar)",
-    source: String.raw`\b\d{1,2}[/.-]\d{1,2}[/.-](?:\d{4}|\d{2})\b`,
+
+  // ---- US
+  usSsn: {
+    region: "US",
+    label: "US Social Security number",
+    // 123-45-6789, 123 45 6789 or 123456789; issuing rules checked in ssnValid.
+    source: String.raw`${NO_DIGIT_BEFORE}${digits(3)}${SEP}${digits(2)}${SEP}${digits(4)}${NO_DIGIT_AFTER}`,
+    validate: ssnValid,
+  },
+  usItin: {
+    region: "US",
+    label: "US ITIN (taxpayer ID, 9xx-xx-xxxx)",
+    source: String.raw`${NO_DIGIT_BEFORE}9\s?\d\s?\d${SEP}${digits(2)}${SEP}${digits(4)}${NO_DIGIT_AFTER}`,
+    validate: itinValid,
+  },
+  usEin: {
+    region: "US",
+    label: "US EIN (employer ID, 12-3456789)",
+    // The dash is required: without it this is just any 9-digit number.
+    source: String.raw`${NO_DIGIT_BEFORE}${digits(2)}\s?-\s?${digits(7)}${NO_DIGIT_AFTER}`,
+  },
+  usPhone: {
+    region: "US",
+    label: "US/Canada phone number",
+    // Optional +1, area code (with or without brackets), exchange, line. NANP area
+    // codes and exchanges never start with 0 or 1.
+    source: String.raw`(?:\+\s?1${SEP}|\b1${SEP})?(?:\(\s*[2-9]\s?\d\s?\d\s*\)|${NO_DIGIT_BEFORE}[2-9]\s?\d\s?\d)${SEP}[2-9]\s?\d\s?\d${SEP}${digits(4)}${NO_DIGIT_AFTER}`,
+  },
+  usZip: {
+    region: "US",
+    label: "US ZIP code (after a state, e.g. CA 94105; or ZIP+4)",
+    // A bare 5-digit number is far too common to redact blindly, so a plain ZIP
+    // must follow a state abbreviation. ZIP+4 is distinctive enough on its own.
+    source: String.raw`(?<=\b(?:${US_STATES})\.?,?\s{1,3})\d{5}(?:-\d{4})?\b|\b\d{5}-\d{4}\b`,
+    flags: "gu", // state codes are upper case; "in 12345" is not Indiana
+  },
+  usRouting: {
+    region: "US",
+    label: "US bank routing number (ABA-checked)",
+    source: String.raw`${NO_DIGIT_BEFORE}\d{9}${NO_DIGIT_AFTER}`,
+    validate: abaValid,
+  },
+  usMbi: {
+    region: "US",
+    label: "US Medicare number (MBI)",
+    source: String.raw`\b[1-9]${MBI_A}${MBI_AN}\d-?${MBI_A}${MBI_AN}\d-?${MBI_A}${MBI_A}\d\d\b`,
+    flags: "gu",
   },
 });
 
@@ -106,9 +247,9 @@ export function compilePatterns({ terms = [], regexes = [], presets = [] } = {},
   for (const key of presets) {
     const p = PRESETS[key];
     if (!p) throw new RedactionError(`Unknown preset "${key}"`, "BAD_PRESET");
-    // Presets are written for the stated case; NI numbers and postcodes are matched
-    // case-insensitively anyway because scanned/OCR text is often lower-cased.
-    out.push({ kind: "preset", label: p.label, re: new RegExp(p.source, "gui") });
+    // Most presets match case-insensitively because scanned/OCR text is often
+    // lower-cased; a preset can opt out where case carries meaning.
+    out.push({ kind: "preset", label: p.label, re: new RegExp(p.source, p.flags ?? "gui"), validate: p.validate });
   }
   return out;
 }
@@ -232,7 +373,7 @@ export function findMatches(pdf, patterns, { maxMatches = 10000, extraText = {} 
     const sources = [{ source: "text", ...pageText(pdf.loadPage(p)) }];
     if (extraText[p]?.text) sources.push({ source: "ocr", text: extraText[p].text, quads: extraText[p].quads });
     for (const { source, text, quads } of sources) {
-      for (const { label, re } of patterns) {
+      for (const { label, re, validate } of patterns) {
         re.lastIndex = 0;
         let m;
         while ((m = re.exec(text)) !== null) {
@@ -246,6 +387,8 @@ export function findMatches(pdf, patterns, { maxMatches = 10000, extraText = {} 
           while (start < end && /\s/.test(text[start])) start++;
           while (end > start && /\s/.test(text[end - 1])) end--;
           if (start === end) continue;
+          // Checksum-style validation: a failed check means it isn't this kind of number.
+          if (validate && !validate(text.slice(start, end))) continue;
           const merged = mergeQuads(quads.slice(start, end));
           if (merged.length) {
             results.push({ page: p, label, source, text: m[0].replace(/\s+/g, " ").trim(), quads: merged });

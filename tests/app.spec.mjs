@@ -23,6 +23,7 @@ const KITCHEN = fixture("kitchen-sink", fx.kitchenSink());
 const ENCRYPTED = fixture("encrypted", fx.encrypted());
 const WORDSTYLE = fixture("word-style", fx.wordStyle());
 const SCANNED = fixture("scanned", fx.scanned());
+const US = fixture("us-style", fx.usStyle());
 
 async function extractText(bytes) {
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0, isEvalSupported: false }).promise;
@@ -338,4 +339,27 @@ test("batch: switching files keeps the list, and the reviewed file keeps its unt
   await page.locator("#files button", { hasText: "word-style.pdf" }).click();
   await expect(page.locator("#file-status")).toContainText("word-style.pdf");
   await expect(page.locator("#files li")).toHaveCount(2);
+});
+
+// ---------------------------------------------------------------- US presets
+
+test("US presets: grouped, collapsed by default, and they redact a US document", async ({ page }) => {
+  await page.goto("/");
+  await page.setInputFiles("#file", US);
+  await expect(page.locator("#file-status")).toContainText("1 page");
+
+  const us = page.locator('.preset-group[data-region="US"]');
+  await expect(us).not.toHaveAttribute("open", "");
+  await us.locator("summary").click();
+  for (const label of ["US Social Security number", "US/Canada phone number", "US bank routing number (ABA-checked)"]) {
+    await us.getByLabel(label).check();
+  }
+  await expect(us.locator("summary")).toHaveAttribute("data-count", "3");
+  await page.getByLabel("Payment card number (Luhn-checked)").check();
+  await page.click("#find");
+  await expect(page.locator(".matches details")).toHaveCount(4);
+
+  const text = (await extractText(await redactAndDownload(page))).replace(/\s+/g, " ");
+  for (const gone of ["123-45-6789", "(415) 555-2671", "021000021", "4111 1111"]) expect(text).not.toContain(gone);
+  for (const kept of ["000123456", "99999", "keep this sentence intact."]) expect(text).toContain(kept);
 });

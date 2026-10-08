@@ -823,15 +823,32 @@ function setDrawing(on) {
 // ---------------------------------------------------------------- wiring
 
 function init() {
+  // Presets grouped by region, each group collapsible so the list stays short.
   const presetsHost = $("presets");
-  for (const [key, p] of Object.entries(PRESETS)) {
-    const lab = document.createElement("label");
-    lab.className = "check";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = key;
-    lab.append(cb, ` ${p.label}`);
-    presetsHost.append(lab);
+  for (const region of ["General", "UK", "US"]) {
+    const entries = Object.entries(PRESETS).filter(([, p]) => p.region === region);
+    if (!entries.length) continue;
+    const group = document.createElement("details");
+    group.className = "preset-group";
+    group.open = region !== "US"; // UK users are the majority so far; US is one click away
+    group.dataset.region = region;
+    const sum = document.createElement("summary");
+    sum.textContent = region;
+    group.append(sum);
+    for (const [key, p] of entries) {
+      const lab = document.createElement("label");
+      lab.className = "check";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = key;
+      cb.addEventListener("change", () => {
+        const n = group.querySelectorAll("input:checked").length;
+        sum.dataset.count = n ? String(n) : "";
+      });
+      lab.append(cb, ` ${p.label}`);
+      group.append(lab);
+    }
+    presetsHost.append(group);
   }
 
   $("file").addEventListener("change", (e) => openFiles(e.target.files));

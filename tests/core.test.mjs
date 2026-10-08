@@ -133,21 +133,87 @@ describe("presets", () => {
     niNumber: { yes: ["QQ123456C", "AB 12 34 56 D", "ab123456a"], no: ["AB123456E", "A1234567C"] },
     ukPostcode: { yes: ["DE74 2AB", "SW1A 1AA", "M1 1AE", "GIR 0AA"], no: ["12345", "DE74"] },
     date: { yes: ["01/02/1970", "1.2.70", "31-12-2026"], no: ["2026", "1/2"] },
+    dateWords: { yes: ["5 January 2026", "Jan. 5th, 2026", "21st of March 1999", "March 3 2020"], no: ["January", "May 2026"] },
+    paymentCard: { yes: ["4111 1111 1111 1111", "3782-822463-10005", "5555555555554444"], no: ["4111 1111 1111 1112", "07950892038"] },
+    usSsn: { yes: ["123-45-6789", "123 45 6789", "123456789", "1 2 3 - 4 5 - 6 7 8 9"], no: ["000-12-3456", "666-12-3456", "912-34-5678", "123-00-4567", "123-45-0000"] },
+    usItin: { yes: ["912-70-1234", "999-94-0000"], no: ["912-40-1234", "812-70-1234"] },
+    usEin: { yes: ["12-3456789"], no: ["123456789", "1-23456789"] },
+    usPhone: { yes: ["(415) 555-2671", "+1 415-555-2671", "1.415.555.2671", "415 555 2671"], no: ["015-555-2671", "415-155-2671", "4155552"] },
+    usZip: { yes: ["CA 94105", "NY, 10001-1234", "30301-0000"], no: ["99999", "in 12345"] },
+    usRouting: { yes: ["021000021", "011401533"], no: ["123456789", "021000022"] },
+    usMbi: { yes: ["1EG4-TE5-MK73", "1EG4TE5MK73"], no: ["1SG4TE5MK73", "0EG4TE5MK73"] },
   };
   for (const [key, { yes, no }] of Object.entries(cases)) {
     test(`${key} matches positives and rejects negatives`, () => {
       const [p] = core.compilePatterns({ presets: [key] });
-      for (const s of yes) {
+      // A match only counts if it also passes the preset's validator, as in findMatches.
+      const accepted = (str) => {
         p.re.lastIndex = 0;
-        const m = p.re.exec(s);
-        assert.ok(m, `${key} should match "${s}"`);
-      }
-      for (const s of no) {
-        p.re.lastIndex = 0;
-        assert.equal(p.re.exec(s)?.[0] === s, false, `${key} should not fully match "${s}"`);
-      }
+        const found = [];
+        let m;
+        while ((m = p.re.exec(str))) if (!p.validate || p.validate(m[0])) found.push(m[0]);
+        return found;
+      };
+      for (const str of yes) assert.ok(accepted(str).length, `${key} should match "${str}"`);
+      for (const str of no) assert.ok(!accepted(str).includes(str), `${key} should not match "${str}"`);
     });
   }
+});
+
+describe("validators", () => {
+  test("Luhn", () => {
+    assert.ok(core.luhnValid("4111111111111111"));
+    assert.ok(core.luhnValid("4111-1111-1111-1111"));
+    assert.ok(!core.luhnValid("4111111111111112"));
+    assert.ok(!core.luhnValid("4111"), "too short");
+  });
+  test("ABA routing", () => {
+    assert.ok(core.abaValid("021000021")); // JPMorgan Chase NY
+    assert.ok(!core.abaValid("021000022"), "bad checksum");
+    assert.ok(!core.abaValid("990000000"), "bad prefix");
+  });
+  test("SSN issuing rules", () => {
+    assert.ok(core.ssnValid("123-45-6789"));
+    for (const bad of ["000-12-3456", "666-12-3456", "900-12-3456", "123-00-4567", "123-45-0000"]) {
+      assert.ok(!core.ssnValid(bad), bad);
+    }
+  });
+  test("ITIN group ranges", () => {
+    for (const ok of ["900-50-0000", "900-65-0000", "900-70-0000", "900-88-0000", "900-90-0000", "900-92-0000", "900-94-0000", "900-99-0000"]) {
+      assert.ok(core.itinValid(ok), ok);
+    }
+    for (const bad of ["900-49-0000", "900-66-0000", "900-89-0000", "900-93-0000", "800-70-0000"]) {
+      assert.ok(!core.itinValid(bad), bad);
+    }
+  });
+  test("every preset has a region the UI knows", () => {
+    for (const [k, p] of Object.entries(core.PRESETS)) assert.ok(["General", "UK", "US"].includes(p.region), k);
+  });
+});
+
+describe("redact: US document (verified with pdf.js)", () => {
+  let result;
+  let text;
+  before(async () => {
+    result = runRedaction(fx.usStyle(), {
+      presets: ["usSsn", "usItin", "usEin", "usPhone", "usZip", "usRouting", "usMbi", "paymentCard", "dateWords"],
+    });
+    text = (await pdfjsText(result.bytes)).replace(/\s+/g, " ");
+  });
+
+  test("verification passes", () => {
+    assert.equal(result.report.ok, true, result.report.failures.join("; "));
+  });
+
+  for (const leaked of ["123-45-6789", "912-70-1234", "(415) 555-2671", "12-3456789", "94105", "4111", "021000021", "1EG4-TE5-MK73", "March 3, 1980"]) {
+    test(`pdf.js cannot extract "${leaked}"`, () => assert.ok(!text.includes(leaked), text));
+  }
+
+  test("decoys survive: invalid SSN/routing, bare 5-digit number, ordinary text", () => {
+    for (const kept of ["000123456", "99999", "keep this sentence intact.", "San Francisco, CA", "Jane Q. Public"]) {
+      assert.ok(text.includes(kept), `"${kept}" should remain in: ${text}`);
+    }
+  });
 });
 
 describe("geometry helpers", () => {

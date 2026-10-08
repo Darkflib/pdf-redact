@@ -6,7 +6,12 @@ Built on [MuPDF.js](https://github.com/ArtifexSoftware/mupdf.js) (MuPDF compiled
 
 ## What it does
 
-1. **Find**: literal phrases, regular expressions, and presets (email, UK phone, NI number, postcode, date). Every match is listed and can be unticked. Phrase search is forgiving:
+1. **Find**: literal phrases, regular expressions, and built-in patterns grouped by region:
+   - **General:** email, dates in numbers or words, payment card numbers (Luhn check).
+   - **UK:** phone, National Insurance number, postcode.
+   - **US:** SSN (issuing rules checked: no 000/666/9xx area, 00 group or 0000 serial), ITIN (IRS group ranges), EIN, US/Canada phone, ZIP code (after a state abbreviation, or ZIP+4, since a bare 5-digit number is too common), bank routing number (ABA checksum), Medicare MBI.
+
+   Where a format has a checksum or issuing rules, a match that fails them is dropped. That avoids flagging every 9- or 16-digit number without letting real ones through. Every match is listed and can be unticked. Phrase search is forgiving:
    - **Any case.**
    - **Between words:** any run of spaces, line breaks, dots, underscores or hyphens, or none at all. "John Smithers" also finds `johnsmithers.org`, `john.smithers@…`, `john_smithers` and a name wrapped over two lines.
    - **Within a word:** one optional space between letters, for letter-spaced text, which extracts as `J o h n`.
@@ -39,8 +44,8 @@ Choose or drop several PDFs. The first opens for review, and the list lets you s
 
 ```sh
 npm ci
-npm run test:unit   # node:test, 85 tests (incl. OCR); outputs checked with pdf.js
-npm run test:e2e    # builds dist/, Playwright + Chromium, 16 tests
+npm run test:unit   # node:test, 110 tests (incl. OCR); outputs checked with pdf.js
+npm run test:e2e    # builds dist/, Playwright + Chromium, 17 tests
 npm run serve       # http://127.0.0.1:8080
 ```
 

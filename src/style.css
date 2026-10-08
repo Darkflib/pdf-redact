@@ -77,6 +77,10 @@ textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-siz
 .check input { margin-top: 0.2rem; }
 fieldset.presets { border: 0; padding: 0; margin: 0.2rem 0; display: flex; flex-direction: column; gap: 0.2rem; }
 fieldset.presets legend { font-size: 0.9rem; margin-bottom: 0.2rem; }
+.preset-group { display: flex; flex-direction: column; gap: 0.2rem; }
+.preset-group summary { cursor: pointer; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 0.15rem 0; }
+.preset-group summary[data-count]:not([data-count=""])::after { content: " · " attr(data-count) " on"; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.preset-group[open] { padding-bottom: 0.3rem; }
 
 button, .button {
   font: inherit; cursor: pointer; border-radius: 6px; padding: 0.45rem 0.8rem;
