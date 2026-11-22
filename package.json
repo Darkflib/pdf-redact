@@ -11,7 +11,7 @@
   },
   "license": "AGPL-3.0-or-later",
   "devDependencies": {
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.65.1",
     "@tesseract.js-data/eng": "^1.0.0",
     "fflate": "^0.8.3",
     "mupdf": "^1.28.1",
