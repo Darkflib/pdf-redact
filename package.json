@@ -14,7 +14,7 @@
     "@playwright/test": "^1.64.0",
     "@tesseract.js-data/eng": "^1.0.0",
     "fflate": "^0.8.3",
-    "mupdf": "^1.28.1",
+    "mupdf": "^1.28.6",
     "pdfjs-dist": "^6.4.299",
     "tesseract.js": "^7.0.0",
     "tesseract.js-core": "^7.0.0"
